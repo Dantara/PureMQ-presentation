@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Asynchronous transactional messaging library</title>
+<meta name="author" content="Nikita Aleshchenko"/>
+<style type="text/css">
+.underline { text-decoration: underline; }
+</style>
+<link rel="stylesheet" href="/Users/n.aleshchenko/.emacs.d/.local/straight/build-27.2/revealjs/dist/reveal.css"/>
+
+<link rel="stylesheet" href="/Users/n.aleshchenko/.emacs.d/.local/straight/build-27.2/revealjs/dist/theme/solarized.css" id="theme"/>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+<section id="sec-title-slide">
+<h2 class="title">Asynchronous transactional messaging library</h2><h3 class="title">in Haskell<h3><br><h4 class="author">Nikita Aleshchenko</h4><h6>Nikolay Kudasov, Nikolay Kovalev</h6>
+</section>
+
+<section>
+<section id="slide-org4c76ce6">
+<h2 id="org4c76ce6">Objectives</h2>
+<div class="outline-text-2" id="text-org4c76ce6">
+</div>
+</section>
+<section id="slide-org1963eae">
+<h3 id="org1963eae">Objectives</h3>
+<ul>
+<li>Local transactional database</li>
+<li>Exposure local databases</li>
+<li>Connection to external databases</li>
+<li>Delivery patterns on top of distributed databases</li>
+
+</ul>
+</section>
+<section id="slide-org1a8b524">
+<h3 id="org1a8b524">Local transactional database</h3>
+<ul>
+<li>Transactional operations</li>
+<li>Support different types of storages (KV, Queue)</li>
+<li>Different levels of transaction isolation</li>
+<li>Single transaction among multiple storages</li>
+
+</ul>
+</section>
+</section>
+<section>
+<section id="slide-org0a34bd9">
+<h2 id="org0a34bd9">Methodology</h2>
+<div class="outline-text-2" id="text-org0a34bd9">
+</div>
+</section>
+<section id="slide-orgc6218fb">
+<h3 id="orgc6218fb">Effects</h3>
+
+<div id="org00ad30a" class="figure">
+<p><img src="./images/effects.png" alt="effects.png" />
+</p>
+</div>
+
+</section>
+<section id="slide-org2f1924a">
+<h3 id="org2f1924a">Database</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell"><span style="color: #859900; font-weight: bold;">data</span> <span style="color: #b58900;">Database</span>
+
+
+<span style="color: #859900; font-weight: bold;">data</span> <span style="color: #b58900;">StorageName</span> key value
+</pre>
+</div>
+
+</section>
+<section id="slide-org25e04fe">
+<h3 id="org25e04fe">Key-Value Storage</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell"><span style="color: #268bd2;">lookup</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Database</span> <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">StorageName</span> k v <span style="color: #6c71c4;">-&gt;</span> k <span style="color: #6c71c4;">-&gt;</span> m (<span style="color: #b58900;">Maybe</span> v)
+
+<span style="color: #268bd2;">insert</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Database</span> <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">StorageName</span> k v <span style="color: #6c71c4;">-&gt;</span> k <span style="color: #6c71c4;">-&gt;</span> v <span style="color: #6c71c4;">-&gt;</span> m <span style="color: #b58900;">()</span>
+
+<span style="color: #268bd2;">modify</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Database</span> <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">StorageName</span> k v <span style="color: #6c71c4;">-&gt;</span> k <span style="color: #6c71c4;">-&gt;</span> (v <span style="color: #6c71c4;">-&gt;</span> v) <span style="color: #6c71c4;">-&gt;</span> m <span style="color: #b58900;">()</span>
+
+<span style="color: #268bd2;">delete</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Database</span> <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">StorageName</span> k v <span style="color: #6c71c4;">-&gt;</span> k <span style="color: #6c71c4;">-&gt;</span> m <span style="color: #b58900;">()</span>
+</pre>
+</div>
+
+</section>
+<section id="slide-org03276ac">
+<h3 id="org03276ac">Queue Storage</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell"><span style="color: #268bd2;">push</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Database</span> <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">StorageName</span> k v <span style="color: #6c71c4;">-&gt;</span> v <span style="color: #6c71c4;">-&gt;</span> m <span style="color: #b58900;">()</span>
+
+<span style="color: #268bd2;">pull</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Database</span> <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">StorageName</span> k v <span style="color: #6c71c4;">-&gt;</span> m v
+
+<span style="color: #268bd2;">peek</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Database</span> <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">StorageName</span> k v <span style="color: #6c71c4;">-&gt;</span> m v
+
+
+<span style="color: #268bd2;">pullIfExist</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Database</span> <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">StorageName</span> k v <span style="color: #6c71c4;">-&gt;</span> m (<span style="color: #b58900;">Maybe</span> v)
+
+<span style="color: #268bd2;">peekIfExist</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Database</span> <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">StorageName</span> k v <span style="color: #6c71c4;">-&gt;</span> m (<span style="color: #b58900;">Maybe</span> v)
+</pre>
+</div>
+
+</section>
+<section id="slide-org8d1590c">
+<h3 id="org8d1590c">Transaction</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell"><span style="color: #268bd2;">prepare</span>
+  <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">PrepareT</span> (<span style="color: #b58900;">CancelTransaction</span> <span style="color: #b58900;">:+:</span> <span style="color: #b58900;">ToSum</span> effs) sig m a
+  <span style="color: #6c71c4;">-&gt;</span> m (<span style="color: #b58900;">Either</span> <span style="color: #b58900;">TransactionError</span> (<span style="color: #b58900;">PreparedTransaction</span> a))
+
+<span style="color: #268bd2;">unsafePrepare</span>
+  <span style="color: #6c71c4;">::</span> m a
+  <span style="color: #6c71c4;">-&gt;</span> m (<span style="color: #b58900;">Either</span> <span style="color: #b58900;">TransactionError</span> (<span style="color: #b58900;">PreparedTransaction</span> a))
+
+<span style="color: #268bd2;">commit</span>
+  <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">PreparedTransaction</span> a
+  <span style="color: #6c71c4;">-&gt;</span> m (<span style="color: #b58900;">Either</span> <span style="color: #b58900;">TransactionError</span> a)
+
+<span style="color: #268bd2;">rollback</span>
+  <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">PreparedTransaction</span> a
+  <span style="color: #6c71c4;">-&gt;</span> m (<span style="color: #b58900;">Maybe</span> <span style="color: #b58900;">TransactionError</span>)
+</pre>
+</div>
+
+</section>
+<section id="slide-org976e08a">
+<h3 id="org976e08a">Example</h3>
+
+</section>
+<section id="slide-org5d147c7">
+<h3 id="org5d147c7">Storage Name</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell"><span style="color: #268bd2;">storageName</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">StorageName</span> <span style="color: #b58900;">Key</span> <span style="color: #b58900;">Int</span>
+<span style="color: #268bd2;">storageName</span> <span style="color: #6c71c4;">=</span> <span style="color: #2aa198;">"some_storage"</span>
+</pre>
+</div>
+
+</section>
+<section id="slide-org3241ef1">
+<h3 id="org3241ef1">Initialization</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell"><span style="color: #268bd2;">initDBs</span> <span style="color: #6c71c4;">::</span> <span style="color: #b58900;">Has</span> (<span style="color: #b58900;">Lift</span> <span style="color: #b58900;">IO</span>) sig m <span style="color: #6c71c4;">=&gt;</span> m (<span style="color: #b58900;">Database</span>, <span style="color: #b58900;">Database</span>)
+<span style="color: #268bd2;">initDBs</span> <span style="color: #6c71c4;">=</span> <span style="color: #859900; font-weight: bold;">do</span>
+  dbCounter <span style="color: #6c71c4;">&lt;-</span> initDBCounter
+  flip runReaderT dbCounter <span style="color: #6c71c4;">$</span> runCombinedSyncDatabaseC <span style="color: #859900; font-weight: bold;">do</span>
+    db1 <span style="color: #6c71c4;">&lt;-</span> initDB
+    db2 <span style="color: #6c71c4;">&lt;-</span> initDB
+    addStorage storageName [<span style="color: #b58900;">Queue</span>, <span style="color: #b58900;">KeyValue</span>] db1
+    addStorage storageName [<span style="color: #b58900;">Queue</span>, <span style="color: #b58900;">KeyValue</span>] db2
+    pure (db1, db2)
+</pre>
+</div>
+
+</section>
+<section id="slide-orgdf9f4bb">
+<h3 id="orgdf9f4bb">Reader</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell"><span style="color: #268bd2;">processReader</span>
+  <span style="color: #6c71c4;">::</span> ( <span style="color: #b58900;">Has</span> (<span style="color: #b58900;">Lift</span> <span style="color: #b58900;">IO</span>) sig m
+     , <span style="color: #b58900;">Has</span> <span style="color: #b58900;">QueueStorage</span> sig m )
+  <span style="color: #6c71c4;">=&gt;</span> <span style="color: #b58900;">Database</span>
+  <span style="color: #6c71c4;">-&gt;</span> m <span style="color: #b58900;">()</span>
+<span style="color: #268bd2;">processReader</span> db <span style="color: #6c71c4;">=</span> fix <span style="color: #6c71c4;">$</span> <span style="color: #6c71c4;">\</span>repeat <span style="color: #6c71c4;">-&gt;</span> <span style="color: #859900; font-weight: bold;">do</span>
+  nextInt <span style="color: #6c71c4;">&lt;-</span> (read <span style="color: #6c71c4;">@</span><span style="color: #b58900;">Int</span>) <span style="color: #6c71c4;">&lt;$&gt;</span> sendIO getLine
+  push db storageName nextInt
+  repeat
+</pre>
+</div>
+
+</section>
+<section id="slide-org930de24">
+<h3 id="org930de24">Calculator</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell"><span style="color: #268bd2;">processCalculator</span>
+  <span style="color: #6c71c4;">::</span> ( <span style="color: #b58900;">Has</span> (<span style="color: #b58900;">Lift</span> <span style="color: #b58900;">IO</span>) sig m
+     , <span style="color: #b58900;">Has</span> <span style="color: #b58900;">QueueStorage</span> sig m
+     , <span style="color: #b58900;">Has</span> <span style="color: #b58900;">Transaction</span> sig m )
+  <span style="color: #6c71c4;">=&gt;</span> <span style="color: #b58900;">Database</span>
+  <span style="color: #6c71c4;">-&gt;</span> <span style="color: #b58900;">Database</span>
+  <span style="color: #6c71c4;">-&gt;</span> m <span style="color: #b58900;">()</span>
+<span style="color: #268bd2;">processCalculator</span> dbFrom dbTo <span style="color: #6c71c4;">=</span> fix <span style="color: #6c71c4;">$</span> <span style="color: #6c71c4;">\</span>repeat <span style="color: #6c71c4;">-&gt;</span> <span style="color: #859900; font-weight: bold;">do</span>
+  eResult <span style="color: #6c71c4;">&lt;-</span> prepare <span style="color: #6c71c4;">@</span>'[<span style="color: #b58900;">QueueStorage</span>] <span style="color: #859900; font-weight: bold;">do</span>
+    received <span style="color: #6c71c4;">&lt;-</span> pull dbFrom storageName
+    push dbTo storageName (received <span style="color: #6c71c4;">+</span> <span style="color: #d33682; font-weight: bold;">1</span>)
+  result <span style="color: #6c71c4;">&lt;-</span> either throwIO pure eResult
+  either throwIO pure <span style="color: #6c71c4;">=&lt;&lt;</span> commit result
+  repeat
+</pre>
+</div>
+
+</section>
+<section id="slide-org75b0c0d">
+<h3 id="org75b0c0d">Printer</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell"><span style="color: #268bd2;">processPrinter</span>
+  <span style="color: #6c71c4;">::</span> ( <span style="color: #b58900;">Has</span> (<span style="color: #b58900;">Lift</span> <span style="color: #b58900;">IO</span>) sig m
+     , <span style="color: #b58900;">Has</span> <span style="color: #b58900;">QueueStorage</span> sig m )
+  <span style="color: #6c71c4;">=&gt;</span> <span style="color: #b58900;">Database</span>
+  <span style="color: #6c71c4;">-&gt;</span> m <span style="color: #b58900;">()</span>
+<span style="color: #268bd2;">processPrinter</span> db <span style="color: #6c71c4;">=</span> fix <span style="color: #6c71c4;">$</span> <span style="color: #6c71c4;">\</span>repeat <span style="color: #6c71c4;">-&gt;</span> <span style="color: #859900; font-weight: bold;">do</span>
+  nextInt <span style="color: #6c71c4;">&lt;-</span> pull db storageName
+  sendIO <span style="color: #6c71c4;">$</span> print nextInt
+  repeat
+</pre>
+</div>
+
+</section>
+<section id="slide-org900ddbe">
+<h3 id="org900ddbe">Cancel</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell">  eResult <span style="color: #6c71c4;">&lt;-</span> prepare <span style="color: #6c71c4;">@</span>'[<span style="color: #b58900;">QueueStorage</span>] <span style="color: #859900; font-weight: bold;">do</span>
+    received <span style="color: #6c71c4;">&lt;-</span> pull dbFrom storageName
+    push dbTo storageName (received <span style="color: #6c71c4;">+</span> <span style="color: #d33682; font-weight: bold;">1</span>)
+</pre>
+</div>
+
+</section>
+<section id="slide-org9fa0486">
+<h3 id="org9fa0486">Cancel</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell">  eResult <span style="color: #6c71c4;">&lt;-</span> prepare <span style="color: #6c71c4;">@</span>'[<span style="color: #b58900;">QueueStorage</span>] <span style="color: #859900; font-weight: bold;">do</span>
+    received <span style="color: #6c71c4;">&lt;-</span> pull dbFrom storageName
+    when (received <span style="color: #6c71c4;">/=</span> <span style="color: #d33682; font-weight: bold;">0</span>) <span style="color: #6c71c4;">$</span> cancel <span style="color: #2aa198;">"Not zero"</span>
+    push dbTo storageName (received <span style="color: #6c71c4;">+</span> <span style="color: #d33682; font-weight: bold;">1</span>)
+</pre>
+</div>
+
+
+</section>
+<section id="slide-org9b6fa62">
+<h3 id="org9b6fa62">Multiple effects</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell">  eResult <span style="color: #6c71c4;">&lt;-</span> prepare <span style="color: #6c71c4;">@</span>'[<span style="color: #b58900;">QueueStorage</span>, <span style="color: #b58900;">KeyValueStorage</span>] <span style="color: #859900; font-weight: bold;">do</span>
+    received <span style="color: #6c71c4;">&lt;-</span> pull dbFrom storageName
+    push dbTo storageName (received <span style="color: #6c71c4;">+</span> <span style="color: #d33682; font-weight: bold;">1</span>)
+    insert otherDB someStorage someKey received
+</pre>
+</div>
+
+</section>
+<section id="slide-org78db377">
+<h3 id="org78db377">Rollback</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell">  eResult <span style="color: #6c71c4;">&lt;-</span> prepare <span style="color: #6c71c4;">@</span>'[<span style="color: #b58900;">QueueStorage</span>, <span style="color: #b58900;">KeyValueStorage</span>] <span style="color: #859900; font-weight: bold;">do</span>
+    received <span style="color: #6c71c4;">&lt;-</span> pull dbFrom storageName
+    push dbTo storageName (received <span style="color: #6c71c4;">+</span> <span style="color: #d33682; font-weight: bold;">1</span>)
+    insert otherDB someStorage someKey received
+  rollback <span style="color: #6c71c4;">$</span> eResult <span style="color: #6c71c4;">^?!</span> _Right
+</pre>
+</div>
+
+</section>
+<section id="slide-org6834203">
+<h3 id="org6834203">Unsafe Prepare</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell">  unsafePrepare <span style="color: #859900; font-weight: bold;">do</span>
+    received <span style="color: #6c71c4;">&lt;-</span> pull dbFrom storageName
+    sendIO <span style="color: #6c71c4;">$</span> putStrLn <span style="color: #2aa198;">"Some side effect"</span>
+    push dbTo storageName (received <span style="color: #6c71c4;">+</span> <span style="color: #d33682; font-weight: bold;">1</span>)
+</pre>
+</div>
+
+</section>
+<section id="slide-orgc4da989">
+<h3 id="orgc4da989">Unsafe Prepare</h3>
+<div class="org-src-container">
+
+<pre class="src src-haskell">  unsafePrepare <span style="color: #859900; font-weight: bold;">do</span>
+    received <span style="color: #6c71c4;">&lt;-</span> pull dbFrom storageName
+    throwIO <span style="color: #b58900;">SomeException</span>
+    push dbTo storageName (received <span style="color: #6c71c4;">+</span> <span style="color: #d33682; font-weight: bold;">1</span>)
+</pre>
+</div>
+
+</section>
+</section>
+<section>
+<section id="slide-org4c0eac9">
+<h2 id="org4c0eac9">Results</h2>
+<div class="outline-text-2" id="text-org4c0eac9">
+</div>
+</section>
+<section id="slide-org8f655b8">
+<h3 id="org8f655b8">Local transactional database</h3>
+<ul>
+<li>Transactional operations</li>
+<li>Support different types of storages (KV, Queue)</li>
+<li>Different levels of transaction isolation</li>
+<li>Single transaction among multiple storages</li>
+
+</ul>
+</section>
+</section>
+</div>
+</div>
+<script src="/Users/n.aleshchenko/.emacs.d/.local/straight/build-27.2/revealjs/dist/reveal.js"></script>
+<script src="/Users/n.aleshchenko/.emacs.d/.local/straight/build-27.2/revealjs/plugin/markdown/markdown.js"></script>
+<script src="/Users/n.aleshchenko/.emacs.d/.local/straight/build-27.2/revealjs/plugin/notes/notes.js"></script>
+<script src="/Users/n.aleshchenko/.emacs.d/.local/straight/build-27.2/revealjs/plugin/search/search.js"></script>
+<script src="/Users/n.aleshchenko/.emacs.d/.local/straight/build-27.2/revealjs/plugin/zoom/zoom.js"></script>
+<script>
+// Full list of configuration options available here:
+// https://github.com/hakimel/reveal.js#configuration
+Reveal.initialize({
+
+controls: true,
+progress: true,
+history: false,
+center: true,
+slideNumber: 'c',
+rollingLinks: false,
+keyboard: true,
+mouseWheel: false,
+fragmentInURL: false,
+hashOneBasedIndex: false,
+pdfSeparateFragments: true,
+overview: true,
+
+transition: 'convex',
+transitionSpeed: 'default',
+
+// Plugins with reveal.js 4.x
+plugins: [ RevealMarkdown, RevealNotes, RevealSearch, RevealZoom ],
+
+// Optional libraries used to extend reveal.js
+dependencies: [
+]
+
+});
+</script>
+</body>
+</html>
