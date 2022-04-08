@@ -1,0 +1,194 @@
+#+TITLE: Asynchronous transactional messaging library
+#+SUBTITLE: in Haskell
+#+AUTHOR: Nikita Aleshchenko
+#+REVEAL_THEME: solarized
+#+OPTIONS: num:nil toc:nil
+#+REVEAL_TITLE_SLIDE: <h2 class="title">%t</h2><h3 class="title">%s<h3><br><h4 class="author">%a</h4><h6>Nikolay Kudasov, Nikolay Kovalev</h6>
+
+* Objectives
+** Objectives
++ Local transactional database
++ Exposure local databases
++ Connection to external databases
++ Delivery patterns on top of distributed databases
+** Local transactional database
++ Transactional operations
++ Support different types of storages (KV, Queue)
++ Different levels of transaction isolation
++ Single transaction among multiple storages
+* Methodology
+** Effects
+[[./images/effects.png]]
+
+** Database
+#+BEGIN_SRC haskell
+data Database
+
+
+data StorageName key value
+#+END_SRC
+
+** Key-Value Storage
+#+BEGIN_SRC haskell
+lookup :: Database -> StorageName k v -> k -> m (Maybe v)
+
+insert :: Database -> StorageName k v -> k -> v -> m ()
+
+modify :: Database -> StorageName k v -> k -> (v -> v) -> m ()
+
+delete :: Database -> StorageName k v -> k -> m ()
+#+END_SRC
+
+** Queue Storage
+#+BEGIN_SRC haskell
+push :: Database -> StorageName k v -> v -> m ()
+
+pull :: Database -> StorageName k v -> m v
+
+peek :: Database -> StorageName k v -> m v
+
+
+pullIfExist :: Database -> StorageName k v -> m (Maybe v)
+
+peekIfExist :: Database -> StorageName k v -> m (Maybe v)
+#+END_SRC
+
+** Transaction
+#+BEGIN_SRC haskell
+prepare
+  :: PrepareT (CancelTransaction :+: ToSum effs) sig m a
+  -> m (Either TransactionError (PreparedTransaction a))
+
+unsafePrepare
+  :: m a
+  -> m (Either TransactionError (PreparedTransaction a))
+
+commit
+  :: PreparedTransaction a
+  -> m (Either TransactionError a)
+
+rollback
+  :: PreparedTransaction a
+  -> m (Maybe TransactionError)
+#+END_SRC
+
+** Example
+
+** Storage Name
+#+BEGIN_SRC haskell
+storageName :: StorageName Key Int
+storageName = "some_storage"
+#+END_SRC
+
+** Initialization
+#+BEGIN_SRC haskell
+initDBs :: Has (Lift IO) sig m => m (Database, Database)
+initDBs = do
+  dbCounter <- initDBCounter
+  flip runReaderT dbCounter $ runCombinedSyncDatabaseC do
+    db1 <- initDB
+    db2 <- initDB
+    addStorage storageName [Queue, KeyValue] db1
+    addStorage storageName [Queue, KeyValue] db2
+    pure (db1, db2)
+#+END_SRC
+
+** Reader
+#+BEGIN_SRC haskell
+processReader
+  :: ( Has (Lift IO) sig m
+     , Has QueueStorage sig m )
+  => Database
+  -> m ()
+processReader db = fix $ \repeat -> do
+  nextInt <- (read @Int) <$> sendIO getLine
+  push db storageName nextInt
+  repeat
+#+END_SRC
+
+** Calculator
+#+BEGIN_SRC haskell
+processCalculator
+  :: ( Has (Lift IO) sig m
+     , Has QueueStorage sig m
+     , Has Transaction sig m )
+  => Database
+  -> Database
+  -> m ()
+processCalculator dbFrom dbTo = fix $ \repeat -> do
+  eResult <- prepare @'[QueueStorage] do
+    received <- pull dbFrom storageName
+    push dbTo storageName (received + 1)
+  result <- either throwIO pure eResult
+  either throwIO pure =<< commit result
+  repeat
+#+END_SRC
+
+** Printer
+#+BEGIN_SRC haskell
+processPrinter
+  :: ( Has (Lift IO) sig m
+     , Has QueueStorage sig m )
+  => Database
+  -> m ()
+processPrinter db = fix $ \repeat -> do
+  nextInt <- pull db storageName
+  sendIO $ print nextInt
+  repeat
+#+END_SRC
+
+** Cancel
+#+BEGIN_SRC haskell
+  eResult <- prepare @'[QueueStorage] do
+    received <- pull dbFrom storageName
+    push dbTo storageName (received + 1)
+#+END_SRC
+
+** Cancel
+#+BEGIN_SRC haskell
+  eResult <- prepare @'[QueueStorage] do
+    received <- pull dbFrom storageName
+    when (received /= 0) $ cancel "Not zero"
+    push dbTo storageName (received + 1)
+#+END_SRC
+
+
+** Multiple effects
+#+BEGIN_SRC haskell
+  eResult <- prepare @'[QueueStorage, KeyValueStorage] do
+    received <- pull dbFrom storageName
+    push dbTo storageName (received + 1)
+    insert otherDB someStorage someKey received
+#+END_SRC
+
+** Rollback
+#+BEGIN_SRC haskell
+  eResult <- prepare @'[QueueStorage, KeyValueStorage] do
+    received <- pull dbFrom storageName
+    push dbTo storageName (received + 1)
+    insert otherDB someStorage someKey received
+  rollback $ eResult ^?! _Right
+#+END_SRC
+
+** Unsafe Prepare
+#+BEGIN_SRC haskell
+  unsafePrepare do
+    received <- pull dbFrom storageName
+    sendIO $ putStrLn "Some side effect"
+    push dbTo storageName (received + 1)
+#+END_SRC
+
+** Unsafe Prepare
+#+BEGIN_SRC haskell
+  unsafePrepare do
+    received <- pull dbFrom storageName
+    throwIO SomeException
+    push dbTo storageName (received + 1)
+#+END_SRC
+
+* Results
+** Local transactional database
++ Transactional operations
++ Support different types of storages (KV, Queue)
++ Different levels of transaction isolation
++ Single transaction among multiple storages
